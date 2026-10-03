@@ -18,6 +18,8 @@ import androidx.preference.Preference
 import androidx.preference.Preference.OnPreferenceChangeListener
 import androidx.preference.PreferenceCategory
 import androidx.preference.SwitchPreferenceCompat
+import co.aospa.dolby.DolbyConstants.Companion.DIALOGUE_ENHANCER_DEFAULT
+import co.aospa.dolby.DolbyConstants.Companion.IEQ_PRESET_DEFAULT
 import co.aospa.dolby.DolbyConstants.Companion.PREF_BASS
 import co.aospa.dolby.DolbyConstants.Companion.PREF_DIALOGUE
 import co.aospa.dolby.DolbyConstants.Companion.PREF_ENABLE
@@ -29,6 +31,7 @@ import co.aospa.dolby.DolbyConstants.Companion.PREF_RESET
 import co.aospa.dolby.DolbyConstants.Companion.PREF_SPK_VIRTUALIZER
 import co.aospa.dolby.DolbyConstants.Companion.PREF_STEREO
 import co.aospa.dolby.DolbyConstants.Companion.PREF_VOLUME
+import co.aospa.dolby.DolbyConstants.Companion.STEREO_WIDENING_DEFAULT
 import co.aospa.dolby.DolbyConstants.Companion.dlog
 import co.aospa.dolby.DolbyController
 import co.aospa.dolby.R
@@ -47,12 +50,12 @@ class DolbySettingsFragment : SettingsBasePreferenceFragment(), OnPreferenceChan
     private val spkVirtPref by lazy {
         findPreference<SwitchPreferenceCompat>(PREF_SPK_VIRTUALIZER)!!
     }
-    private val volumePref by lazy { findPreference<SwitchPreferenceCompat>(PREF_VOLUME)!! }
     private val resetPref by lazy { findPreference<Preference>(PREF_RESET)!! }
     private val settingsCategory by lazy {
         findPreference<PreferenceCategory>("dolby_category_settings")!!
     }
     private var stereoPref: ListPreference? = null
+    private var volumePref: SwitchPreferenceCompat? = null
 
     private val dolbyController by lazy { DolbyController.getInstance(requireContext()) }
     private val audioManager by lazy {
@@ -91,7 +94,13 @@ class DolbySettingsFragment : SettingsBasePreferenceFragment(), OnPreferenceChan
             stereoPref = null
         }
 
-        val profile = dolbyController.profile
+        volumePref = findPreference<SwitchPreferenceCompat>(PREF_VOLUME)!!
+        if (!resources.getBoolean(R.bool.dolby_volume_leveler_supported)) {
+            settingsCategory.removePreference(volumePref!!)
+            volumePref = null
+        }
+
+        val profile = dolbyController.restoreCurrentProfile()
         preferenceManager.preferenceDataStore =
             DolbyPreferenceStore(requireContext()).also { it.profile = profile }
 
@@ -105,7 +114,7 @@ class DolbySettingsFragment : SettingsBasePreferenceFragment(), OnPreferenceChan
         stereoPref?.onPreferenceChangeListener = this
         dialoguePref.onPreferenceChangeListener = this
         bassPref.onPreferenceChangeListener = this
-        volumePref.onPreferenceChangeListener = this
+        volumePref?.onPreferenceChangeListener = this
         ieqPref.onPreferenceChangeListener = this
 
         resetPref.setOnPreferenceClickListener {
@@ -133,6 +142,8 @@ class DolbySettingsFragment : SettingsBasePreferenceFragment(), OnPreferenceChan
 
     override fun onResume() {
         super.onResume()
+        (preferenceManager.preferenceDataStore as DolbyPreferenceStore).profile =
+            dolbyController.restoreCurrentProfile()
         updateProfileSpecificPrefs()
     }
 
@@ -149,7 +160,7 @@ class DolbySettingsFragment : SettingsBasePreferenceFragment(), OnPreferenceChan
                 val profile = newValue.toString().toInt()
                 dolbyController.profile = profile
                 (preferenceManager.preferenceDataStore as DolbyPreferenceStore).profile = profile
-                updateProfileSpecificPrefs()
+                updateProfileSpecificPrefs(profile)
             }
 
             PREF_SPK_VIRTUALIZER -> {
@@ -190,11 +201,13 @@ class DolbySettingsFragment : SettingsBasePreferenceFragment(), OnPreferenceChan
         isOnSpeaker = (device.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
     }
 
-    private fun updateProfileSpecificPrefs() {
+    private fun updateProfileSpecificPrefs(profileOverride: Int? = null) {
         val unknownRes = getString(R.string.dolby_unknown)
         val headphoneRes = getString(R.string.dolby_connect_headphones)
         val dsOn = dolbyController.dsOn
-        val currentProfile = dolbyController.profile
+        // The persisted value is the source of truth for the selector. The effect can
+        // temporarily report an invalid profile while an audio route is being restored.
+        val currentProfile = profileOverride ?: dolbyController.getPersistedProfile()
 
         dlog(
             TAG,
@@ -204,7 +217,7 @@ class DolbySettingsFragment : SettingsBasePreferenceFragment(), OnPreferenceChan
 
         profilePref.setEnabled(dsOn)
         profilePref.apply {
-            if (entryValues.contains(currentProfile.toString())) {
+            if (findIndexOfValue(currentProfile.toString()) >= 0) {
                 value = currentProfile.toString()
                 summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
             } else {
@@ -219,7 +232,7 @@ class DolbySettingsFragment : SettingsBasePreferenceFragment(), OnPreferenceChan
         spkVirtPref.setEnabled(enable)
         ieqPref.setEnabled(enable)
         dialoguePref.setEnabled(enable)
-        volumePref.setEnabled(enable)
+        volumePref?.setEnabled(enable)
         resetPref.setEnabled(enable)
         hpVirtPref.setEnabled(enable && !isOnSpeaker)
         stereoPref?.setEnabled(enable && !isOnSpeaker)
@@ -231,30 +244,35 @@ class DolbySettingsFragment : SettingsBasePreferenceFragment(), OnPreferenceChan
 
         val ieqValue = dolbyController.getIeqPreset(currentProfile)
         ieqPref.apply {
-            if (entryValues.contains(ieqValue.toString())) {
+            if (findIndexOfValue(ieqValue.toString()) >= 0) {
                 value = ieqValue.toString()
                 summaryProvider = Preference.SummaryProvider<DolbyIeqPreference> { it.entry }
             } else {
-                summaryProvider = null
-                summary = unknownRes
-                dlog(TAG, "ieq value $ieqValue unknown")
+                dlog(TAG, "ieq value $ieqValue unknown, resetting to default")
+                dolbyController.setIeqPreset(IEQ_PRESET_DEFAULT.toInt(), currentProfile)
+                summaryProvider = Preference.SummaryProvider<DolbyIeqPreference> { it.entry }
+                value = IEQ_PRESET_DEFAULT
             }
         }
 
         val deValue = dolbyController.getDialogueEnhancerAmount(currentProfile).toString()
         dialoguePref.apply {
-            if (entryValues.contains(deValue)) {
+            if (findIndexOfValue(deValue) >= 0) {
                 value = deValue
                 summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
             } else {
-                summaryProvider = null
-                summary = unknownRes
-                dlog(TAG, "dialogue enhancer value $deValue unknown")
+                dlog(TAG, "dialogue enhancer value $deValue unknown, resetting to default")
+                dolbyController.setDialogueEnhancerAmount(
+                    DIALOGUE_ENHANCER_DEFAULT.toInt(),
+                    currentProfile,
+                )
+                summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
+                value = DIALOGUE_ENHANCER_DEFAULT
             }
         }
 
         spkVirtPref.setChecked(dolbyController.getSpeakerVirtEnabled(currentProfile))
-        volumePref.setChecked(dolbyController.getVolumeLevelerEnabled(currentProfile))
+        volumePref?.setChecked(dolbyController.getVolumeLevelerEnabled(currentProfile))
         bassPref.setChecked(dolbyController.getBassEnhancerEnabled(currentProfile))
 
         // below prefs are not enabled on loudspeaker
@@ -267,13 +285,17 @@ class DolbySettingsFragment : SettingsBasePreferenceFragment(), OnPreferenceChan
 
         val swValue = dolbyController.getStereoWideningAmount(currentProfile).toString()
         stereoPref?.apply {
-            if (entryValues.contains(swValue)) {
+            if (findIndexOfValue(swValue) >= 0) {
                 value = swValue
                 summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
             } else {
-                summaryProvider = null
-                summary = unknownRes
-                dlog(TAG, "stereo widening value $swValue unknown")
+                val persistedValue =
+                    preferenceManager.preferenceDataStore
+                        ?.getString(PREF_STEREO, STEREO_WIDENING_DEFAULT)
+                        ?.takeIf { findIndexOfValue(it) >= 0 } ?: STEREO_WIDENING_DEFAULT
+                dlog(TAG, "stereo widening value $swValue unknown, using persisted $persistedValue")
+                value = persistedValue
+                summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
             }
         }
 

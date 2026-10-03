@@ -39,6 +39,9 @@ class DolbyConstants {
         const val PREF_BASS = "dolby_bass"
         const val PREF_VOLUME = "dolby_volume"
         const val PREF_RESET = "dolby_reset"
+        const val DIALOGUE_ENHANCER_DEFAULT = "0"
+        const val IEQ_PRESET_DEFAULT = "0"
+        const val STEREO_WIDENING_DEFAULT = "4"
 
         val PROFILE_SPECIFIC_PREFS =
             setOf(
