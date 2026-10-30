@@ -16,6 +16,7 @@ import org.lunaris.dolby.data.DolbyRepository
 import org.lunaris.dolby.data.autoeq.*
 import org.lunaris.dolby.domain.models.*
 import org.lunaris.dolby.utils.ToastHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -31,10 +32,10 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     private val _uiState = MutableStateFlow<EqualizerUiState>(EqualizerUiState.Loading)
     val uiState: StateFlow<EqualizerUiState> = _uiState.asStateFlow()
 
-    private var currentProfile = 0
-    private var currentBandMode = BandMode.TEN_BAND
+    @Volatile private var currentProfile = 0
+    @Volatile private var currentBandMode = BandMode.TEN_BAND
     private var profileChangeJob: Job? = null
-    private var isCleared = false
+    @Volatile private var isCleared = false
 
     private lateinit var autoEqRepository: AutoEqRepository
 
@@ -47,13 +48,24 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     private val _isSearchLoading = MutableStateFlow(false)
     val isSearchLoading = _isSearchLoading.asStateFlow()
 
+    private val _autoEqReady = MutableStateFlow(false)
+
     @OptIn(kotlinx.coroutines.FlowPreview::class)
-    val filteredAutoEqList: StateFlow<List<IndexEntry>> = _searchQuery
-        .debounce(250L)
-        .map { query -> 
-            if (::autoEqRepository.isInitialized) autoEqRepository.search(query) else emptyList()
-        }
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val filteredAutoEqList: StateFlow<List<IndexEntry>> =
+        combine(_searchQuery.debounce(250L), _autoEqReady) { query, ready -> query to ready }
+            .map { (query, ready) ->
+                if (ready && ::autoEqRepository.isInitialized) {
+                    try {
+                        autoEqRepository.search(query)
+                    } catch (e: Exception) {
+                        DolbyConstants.dlog(TAG, "AutoEQ search failed: ${e.message}")
+                        emptyList()
+                    }
+                } else {
+                    emptyList()
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
         DolbyConstants.dlog(TAG, "ViewModel initialized")
@@ -76,7 +88,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     fun loadEqualizer() {
         if (isCleared) return
         
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 currentProfile = repository.getCurrentProfile()
                 currentBandMode = repository.getBandMode()
@@ -121,11 +133,17 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
         if (!::autoEqRepository.isInitialized) {
             autoEqRepository = AutoEqRepository(ctx.applicationContext)
         }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _isSearchLoading.value = true
-            autoEqRepository.initialize()
-            _searchQuery.value = _searchQuery.value
-            _isSearchLoading.value = false
+            try {
+                autoEqRepository.initialize()
+                _autoEqReady.value = true
+            } catch (e: Exception) {
+                DolbyConstants.dlog(TAG, "Error initializing AutoEQ: ${e.message}")
+                ToastHelper.showToast(ctx, "Failed to load AutoEQ profiles")
+            } finally {
+                _isSearchLoading.value = false
+            }
         }
     }
 
@@ -134,19 +152,25 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun applyAutoEqProfileNetwork(ctx: Context, entry: IndexEntry) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _isSearchLoading.value = true
-            val profile = autoEqRepository.getProfile(entry.id)
-            
-            if (profile != null) {
-                prefs.edit().putString("last_applied_id", entry.id).commit()
-                _currentAppliedAutoEqId.value = entry.id
-                
-                applyAutoEqProfile(profile.name, profile.graphicEq)
-            } else {
+            try {
+                val profile = autoEqRepository.getProfile(entry.id)
+
+                if (profile != null) {
+                    prefs.edit().putString("last_applied_id", entry.id).commit()
+                    _currentAppliedAutoEqId.value = entry.id
+
+                    applyAutoEqProfile(profile.name, profile.graphicEq)
+                } else {
+                    ToastHelper.showToast(ctx, "Failed to download profile for ${entry.name}")
+                }
+            } catch (e: Exception) {
+                DolbyConstants.dlog(TAG, "Error downloading AutoEQ profile: ${e.message}")
                 ToastHelper.showToast(ctx, "Failed to download profile for ${entry.name}")
+            } finally {
+                _isSearchLoading.value = false
             }
-            _isSearchLoading.value = false
         }
     }
 
@@ -154,7 +178,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
         val state = _uiState.value
         if (state !is EqualizerUiState.Success) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val parsedAutoEq = parseAutoEqString(autoEqString)
                 if (parsedAutoEq.isEmpty()) {
@@ -277,7 +301,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setBandMode(mode: BandMode) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.setBandMode(mode)
                 currentBandMode = mode
@@ -289,7 +313,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setPreset(preset: EqualizerPreset) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val targetGains = if (preset.bandMode != currentBandMode) {
                     convertPresetToBandMode(preset, currentBandMode)
@@ -364,7 +388,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setBandGain(index: Int, gain: Int) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val state = _uiState.value
                 if (state is EqualizerUiState.Success) {
@@ -400,7 +424,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
             return context.getString(R.string.dolby_geq_preset_name_too_long)
         }
         
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.addUserPreset(name.trim(), state.bandGains, currentBandMode)
                 loadEqualizer()
@@ -415,7 +439,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     fun deletePreset(preset: EqualizerPreset) {
         if (!preset.isUserDefined) return
         
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.deleteUserPreset(preset.name)
                 loadEqualizer()
@@ -437,7 +461,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
             return context.getString(R.string.dolby_geq_preset_name_too_long)
         }
         
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.addUserPreset(
                     preset.name.trim(), 
@@ -454,7 +478,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun resetGains() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val flatPreset = getBuiltInPresets(currentBandMode).first()
                 repository.setEqualizerGains(currentProfile, flatPreset.bandGains, currentBandMode)
