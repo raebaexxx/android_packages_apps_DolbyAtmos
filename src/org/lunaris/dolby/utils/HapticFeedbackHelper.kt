@@ -6,6 +6,7 @@
 package org.lunaris.dolby.utils
 
 import android.content.Context
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -20,6 +21,8 @@ import java.util.concurrent.Executors
 object HapticFeedbackHelper {
     
     private val executor = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private var lastVibrationAt = 0L
+    private const val HAPTIC_INTERVAL_MS = 50L
     
     enum class HapticIntensity(val value: Int) {
         TEXTURE_TICK(1),
@@ -32,6 +35,14 @@ object HapticFeedbackHelper {
     suspend fun triggerVibration(context: Context, intensity: HapticIntensity) {
         withContext(executor) {
             try {
+                // Sliders request haptics on every step. Coalesce them so the vibrator HAL
+                // does not queue a cancel/vibrate pair for every pixel of movement.
+                val now = SystemClock.uptimeMillis()
+                if (now - lastVibrationAt < HAPTIC_INTERVAL_MS) {
+                    return@withContext
+                }
+                lastVibrationAt = now
+
                 val vibrator = getVibrator(context) ?: return@withContext
                 
                 if (!vibrator.hasVibrator()) {
