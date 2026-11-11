@@ -14,6 +14,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.AudioPlaybackConfiguration
 import android.os.Handler
+import android.os.HandlerThread
 import android.content.SharedPreferences
 import android.os.IBinder
 import android.util.Log
@@ -29,10 +30,13 @@ class DolbyEffectService : Service() {
     }
     private val isDeviceStateMemoryEnabled: Boolean
         get() = dolbyPrefs.getBoolean(DolbyConstants.PREF_DEVICE_STATE_MEMORY, false)
-    private val handler = Handler()
+
+    private lateinit var workerThread: HandlerThread
+    private lateinit var handler: Handler
     private lateinit var repository: DolbyRepository
     private lateinit var deviceStateManager: DeviceStateManager
     private var previousActiveDevice: AudioDeviceInfo? = null
+    private var wasPlaying = false
 
     private val audioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
@@ -56,33 +60,49 @@ class DolbyEffectService : Service() {
     private val playbackCallback = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
             val isActive = configs?.any { it.isActive } == true
-            if (isActive) {
+            // Re-apply only on the silent -> playing transition. Re-applying on every playback
+            // callback floods the Dolby HAL with parameters and can stall the UI thread.
+            if (isActive && !wasPlaying) {
+                Log.d(TAG, "Playback became active, applying saved state")
                 repository.applySavedState()
             }
+            wasPlaying = isActive
         }
     }
 
     override fun onCreate() {
         super.onCreate()
-        repository = DolbyRepository(this)
-        deviceStateManager = DeviceStateManager(this)
-        val currentDevice = getCurrentOutputDevice()
-        if (currentDevice != null) {
-            previousActiveDevice = currentDevice
-            if (isDeviceStateMemoryEnabled) {
-                val key = deviceStateManager.deviceKey(currentDevice)
-                val restored = deviceStateManager.restoreSnapshot(key, repository)
-                if (!restored) repository.applySavedState()
+        workerThread = HandlerThread("DolbyEffectService").apply { start() }
+        handler = Handler(workerThread.looper)
+        handler.post { initialize() }
+    }
+
+    private fun initialize() {
+        try {
+            repository = DolbyRepository(this)
+            deviceStateManager = DeviceStateManager(this)
+
+            val currentDevice = getCurrentOutputDevice()
+            if (currentDevice != null) {
+                previousActiveDevice = currentDevice
+                if (isDeviceStateMemoryEnabled) {
+                    val key = deviceStateManager.deviceKey(currentDevice)
+                    val restored = deviceStateManager.restoreSnapshot(key, repository)
+                    if (!restored) repository.applySavedState()
+                } else {
+                    repository.applySavedState()
+                }
             } else {
                 repository.applySavedState()
             }
-        } else {
-            repository.applySavedState()
-        }
 
-        audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler)
-        audioManager.registerAudioPlaybackCallback(playbackCallback, handler)
-        Log.d(TAG, "Dolby effect service created")
+            audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler)
+            audioManager.registerAudioPlaybackCallback(playbackCallback, handler)
+            Log.d(TAG, "Dolby effect service created")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize Dolby effect service", e)
+            stopSelf()
+        }
     }
 
     private fun handleDeviceChange() {
@@ -152,21 +172,36 @@ class DolbyEffectService : Service() {
         "name=$productName,type=$type,id=$id,address=$address,isSink=$isSink"
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        repository.applySavedState()
+        if (::handler.isInitialized) {
+            handler.post {
+                if (::repository.isInitialized) {
+                    repository.applySavedState()
+                }
+            }
+        }
         return START_STICKY
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (isDeviceStateMemoryEnabled) {
-            previousActiveDevice?.let { device ->
-                val key = deviceStateManager.deviceKey(device)
-                deviceStateManager.saveSnapshot(key, repository)
+        if (::handler.isInitialized) {
+            handler.removeCallbacksAndMessages(null)
+            handler.post {
+                try {
+                    audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
+                    audioManager.unregisterAudioPlaybackCallback(playbackCallback)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to unregister audio callbacks", e)
+                }
+                if (::repository.isInitialized && isDeviceStateMemoryEnabled) {
+                    previousActiveDevice?.let { device ->
+                        val key = deviceStateManager.deviceKey(device)
+                        deviceStateManager.saveSnapshot(key, repository)
+                    }
+                }
+                workerThread.quitSafely()
             }
         }
-        audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
-        audioManager.unregisterAudioPlaybackCallback(playbackCallback)
-        handler.removeCallbacksAndMessages(null)
         Log.d(TAG, "Dolby effect service destroyed")
     }
 

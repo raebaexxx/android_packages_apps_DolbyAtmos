@@ -11,7 +11,6 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.util.Log
-import org.lunaris.dolby.data.DolbyRepository
 import org.lunaris.dolby.service.AppProfileMonitorService
 import org.lunaris.dolby.service.DolbyEffectService
 import org.lunaris.dolby.service.DolbyNotificationListener
@@ -24,8 +23,6 @@ class BootCompletedReceiver : BroadcastReceiver() {
             Intent.ACTION_LOCKED_BOOT_COMPLETED,
             Intent.ACTION_BOOT_COMPLETED -> {
                 try {
-                    val repository = DolbyRepository(context)
-                    
                     DolbyEffectService.start(context)
                     
                     val prefs = context.getSharedPreferences("dolby_prefs", Context.MODE_PRIVATE)
