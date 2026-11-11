@@ -202,4 +202,8 @@
     <string name="dolby_autoeq_active">Cấu hình đang hoạt động</string>
     <string name="dolby_autoeq_selected">Cấu hình đã chọn</string>
 
+
+    <!-- Confirmation dialog -->
+    <string name="dolby_yes">Có</string>
+    <string name="dolby_no">Không</string>
 </resources>

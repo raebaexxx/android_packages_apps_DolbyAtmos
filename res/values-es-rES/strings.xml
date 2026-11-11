@@ -167,4 +167,8 @@
     <string name="batch_export_description">¿Exportar los %1$s preajustes personalizados a un solo archivo?</string>
     <string name="export_all">Exportar todo</string>
 
+
+    <!-- Confirmation dialog -->
+    <string name="dolby_yes">Sí</string>
+    <string name="dolby_no">No</string>
 </resources>

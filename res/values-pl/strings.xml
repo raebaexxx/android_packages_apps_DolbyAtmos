@@ -181,4 +181,8 @@
     <string name="app_profile_conflict_toast">Wyłączono pamięć dla poszczególnych urządeń — niezgodne z profilami na aplikację</string>
     <string name="app_profile_conflict_summary">⚠ Funkcja jest wyłączona, gdy aktywne są profile poszczególnych aplikacji — powodują one konflikt</string>
     <string name="device_state_memory_section_title">Pamięć urządzenia audio</string>
+
+    <!-- Confirmation dialog -->
+    <string name="dolby_yes">Tak</string>
+    <string name="dolby_no">Nie</string>
 </resources>

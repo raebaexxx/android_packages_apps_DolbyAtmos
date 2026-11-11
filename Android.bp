@@ -16,6 +16,10 @@ android_app {
     system_ext_specific: true,
     privileged: true,
 
+    // R8 in this tree does not know API 37 yet; the app itself only needs platform APIs
+    // available since 36.
+    min_sdk_version: "36",
+
     overrides: ["MusicFX", "AudioFX"],
     static_libs: [
         "androidx.activity_activity-compose",

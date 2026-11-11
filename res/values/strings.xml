@@ -213,4 +213,24 @@
     <string name="dolby_autoeq_search">Search</string>
     <string name="dolby_autoeq_active">Active profile</string>
     <string name="dolby_autoeq_selected">Selected profile</string>
+
+    <!-- Confirmation dialog -->
+    <string name="dolby_yes">Yes</string>
+    <string name="dolby_no">No</string>
+
+    <!-- Audio output -->
+    <string name="audio_output_active_device">Active audio output</string>
+    <string name="audio_output_speaker">Speaker</string>
+    <string name="audio_output_wired">Wired headphones</string>
+    <string name="audio_output_bluetooth">Bluetooth</string>
+    <string name="audio_output_usb">USB audio</string>
+    <string name="audio_output_unknown">Audio device</string>
+
+    <!-- Profiles -->
+    <string name="dolby_profile_custom">Custom</string>
+    <string name="dolby_profile_voice">Voice</string>
+    <string name="dolby_read_only">Read-only</string>
+    <string name="dolby_reset_profile">Reset to default</string>
+    <string name="dolby_reset_profile_toast">Settings for profile %1$s were reset</string>
+    <string name="dolby_stereo_widening">Stereo widening</string>
 </resources>

@@ -166,4 +166,8 @@
     <string name="batch_export">Exportação em lote</string>
     <string name="batch_export_description">Exportar todas as %1$s predefinições personalizadas para um único arquivo?</string>
     <string name="export_all">Exportar tudo</string>
+
+    <!-- Confirmation dialog -->
+    <string name="dolby_yes">Sim</string>
+    <string name="dolby_no">Não</string>
 </resources>

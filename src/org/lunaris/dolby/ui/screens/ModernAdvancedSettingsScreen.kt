@@ -13,6 +13,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -181,7 +183,7 @@ private fun ModernAdvancedSettingsContent(
                                     viewModel.setMidLevel(0)
                                 }
                             },
-                            icon = Icons.Default.VolumeUp
+                            icon = Icons.AutoMirrored.Filled.VolumeUp
                         )
 
                         AnimatedVisibility(visible = state.profileSettings.midLevel > 0) {
@@ -235,7 +237,7 @@ private fun ModernAdvancedSettingsContent(
             item {
                 ModernSettingsCard(
                     title = "Volume Leveler",
-                    icon = Icons.Default.VolumeDown
+                    icon = Icons.AutoMirrored.Filled.VolumeDown
                 ) {
                     ModernSettingSwitch(
                         title = stringResource(R.string.dolby_volume_leveler),

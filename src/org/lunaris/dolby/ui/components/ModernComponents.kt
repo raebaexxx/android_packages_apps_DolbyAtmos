@@ -649,7 +649,7 @@ fun ModernConfirmDialog(
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             ) {
-                Text(stringResource(android.R.string.yes))
+                Text(stringResource(R.string.dolby_yes))
             }
         },
         dismissButton = {
@@ -660,7 +660,7 @@ fun ModernConfirmDialog(
                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             ) {
-                Text(stringResource(android.R.string.no))
+                Text(stringResource(R.string.dolby_no))
             }
         },
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,

@@ -191,4 +191,8 @@
     <string name="dolby_autoeq_search">Поиск</string>
     <string name="dolby_autoeq_active">Активный профиль</string>
     <string name="dolby_autoeq_selected">Выбранный профиль</string>
+
+    <!-- Confirmation dialog -->
+    <string name="dolby_yes">Да</string>
+    <string name="dolby_no">Нет</string>
 </resources>

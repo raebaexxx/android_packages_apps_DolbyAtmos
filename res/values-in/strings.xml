@@ -204,4 +204,8 @@
     <string name="dolby_autoeq_search">Cari</string>
     <string name="dolby_autoeq_active">Profil aktif</string>
     <string name="dolby_autoeq_selected">Profil terpilih</string>
+
+    <!-- Confirmation dialog -->
+    <string name="dolby_yes">Ya</string>
+    <string name="dolby_no">Tidak</string>
 </resources>

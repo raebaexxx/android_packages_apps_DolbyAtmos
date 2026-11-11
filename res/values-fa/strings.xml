@@ -199,4 +199,8 @@
     <string name="dolby_autoeq_search">جستجو</string>
     <string name="dolby_autoeq_active">پروفایل فعال</string>
     <string name="dolby_autoeq_selected">پروفایل انتخاب شده</string>
+
+    <!-- Confirmation dialog -->
+    <string name="dolby_yes">بله</string>
+    <string name="dolby_no">خیر</string>
 </resources>
