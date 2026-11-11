@@ -37,6 +37,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.lunaris.dolby.R
 import org.lunaris.dolby.utils.*
@@ -408,7 +409,20 @@ fun ModernSettingSlider(
     val haptic = rememberHapticFeedback()
     val scope = rememberCoroutineScope()
     var lastHapticValue by remember { mutableIntStateOf(value) }
-    
+
+    // Drag events arrive at display refresh rate. Keep a local value so the thumb follows the
+    // finger immediately, and throttle the HAL writes instead of sending one per pixel.
+    var sliderValue by remember { mutableFloatStateOf(value.toFloat()) }
+    var isDragging by remember { mutableStateOf(false) }
+    var lastSentAt by remember { mutableLongStateOf(0L) }
+    var dragResetJob by remember { mutableStateOf<Job?>(null) }
+
+    LaunchedEffect(value) {
+        if (!isDragging) {
+            sliderValue = value.toFloat()
+        }
+    }
+
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -427,7 +441,7 @@ fun ModernSettingSlider(
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Text(
-                    text = valueLabel(value),
+                    text = valueLabel(sliderValue.toInt()),
                     style = MaterialTheme.typography.labelLargeEmphasized,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
@@ -438,8 +452,17 @@ fun ModernSettingSlider(
         Spacer(modifier = Modifier.height(8.dp))
         
         Slider(
-            value = value.toFloat(),
+            value = sliderValue,
             onValueChange = { newValue ->
+                isDragging = true
+                sliderValue = newValue
+
+                dragResetJob?.cancel()
+                dragResetJob = scope.launch {
+                    kotlinx.coroutines.delay(SLIDER_DRAG_RESET_MS)
+                    isDragging = false
+                }
+
                 val intValue = newValue.toInt()
                 if (intValue != lastHapticValue) {
                     scope.launch {
@@ -447,7 +470,18 @@ fun ModernSettingSlider(
                     }
                     lastHapticValue = intValue
                 }
-                onValueChange(newValue)
+
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - lastSentAt >= SLIDER_WRITE_INTERVAL_MS) {
+                    lastSentAt = now
+                    onValueChange(newValue)
+                }
+            },
+            onValueChangeFinished = {
+                dragResetJob?.cancel()
+                isDragging = false
+                lastSentAt = android.os.SystemClock.uptimeMillis()
+                onValueChange(sliderValue)
             },
             valueRange = valueRange,
             steps = steps,
@@ -462,6 +496,9 @@ fun ModernSettingSlider(
         )
     }
 }
+
+private const val SLIDER_WRITE_INTERVAL_MS = 64L
+private const val SLIDER_DRAG_RESET_MS = 400L
 
 @Composable
 fun ModernSettingSelector(

@@ -176,14 +176,11 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun getCurrentProfile(): Int {
-        return try {
-            checkEffect()
-            restoreSavedProfileIfNeeded()
-            dolbyEffect.profile
-        } catch (e: Exception) {
-            DolbyConstants.dlog(TAG, "Error getting current profile: ${e.message}")
-            0
-        }
+        // This is called by every UI setter. It must stay cheap: no effect checks and no
+        // re-applying the saved profile, otherwise each slider step writes the whole profile
+        // back to the Dolby HAL. The preference is the source of truth and is shared by every
+        // repository instance in the process.
+        return defaultPrefs.getString(DolbyConstants.PREF_PROFILE, "0")?.toIntOrNull() ?: 0
     }
 
     fun setCurrentProfile(profile: Int) {
@@ -257,11 +254,14 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
 
     fun setBassEnhancerEnabled(profile: Int, enabled: Boolean) {
         if (isReleased) return
-        
+
+        val prefs = getProfilePrefs(profile)
+        if (prefs.getBoolean(DolbyConstants.PREF_BASS, false) == enabled) return
+
         try {
             checkEffect()
             dolbyEffect.setDapParameter(DsParam.BASS_ENHANCER_ENABLE, enabled, profile)
-            getProfilePrefs(profile).edit().putBoolean(DolbyConstants.PREF_BASS, enabled).apply()
+            prefs.edit().putBoolean(DolbyConstants.PREF_BASS, enabled).apply()
         } catch (e: Exception) {
             DolbyConstants.dlog(TAG, "Error setting bass enhancer: ${e.message}")
         }
@@ -327,6 +327,7 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
         try {
             val prefs = getProfilePrefs(profile)
             val previousLevel = prefs.getInt(DolbyConstants.PREF_BASS_LEVEL, 0)
+            if (level == previousLevel) return
             
             prefs.edit().putInt(DolbyConstants.PREF_BASS_LEVEL, level).apply()
             
@@ -388,6 +389,7 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
         try {
             val prefs = getProfilePrefs(profile)
             val previousLevel = prefs.getInt(DolbyConstants.PREF_TREBLE_LEVEL, 0)
+            if (level == previousLevel) return
 
             prefs.edit().putInt(DolbyConstants.PREF_TREBLE_LEVEL, level).apply()
             setTrebleEnhancerEnabled(profile, level > 0)
@@ -528,11 +530,14 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
 
     fun setStereoWideningAmount(profile: Int, amount: Int) {
         if (!stereoWideningSupported || isReleased) return
-        
+
+        val prefs = getProfilePrefs(profile)
+        if (prefs.getInt(DolbyConstants.PREF_STEREO_WIDENING, -1) == amount) return
+
         try {
             checkEffect()
             dolbyEffect.setDapParameter(DsParam.STEREO_WIDENING_AMOUNT, amount, profile)
-            getProfilePrefs(profile).edit().putInt(DolbyConstants.PREF_STEREO_WIDENING, amount).apply()
+            prefs.edit().putInt(DolbyConstants.PREF_STEREO_WIDENING, amount).apply()
         } catch (e: Exception) {
             DolbyConstants.dlog(TAG, "Error setting stereo widening: ${e.message}")
         }
@@ -570,11 +575,14 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
 
     fun setDialogueEnhancerAmount(profile: Int, amount: Int) {
         if (isReleased) return
-        
+
+        val prefs = getProfilePrefs(profile)
+        if (prefs.getInt(DolbyConstants.PREF_DIALOGUE_AMOUNT, -1) == amount) return
+
         try {
             checkEffect()
             dolbyEffect.setDapParameter(DsParam.DIALOGUE_ENHANCER_AMOUNT, amount, profile)
-            getProfilePrefs(profile).edit().putInt(DolbyConstants.PREF_DIALOGUE_AMOUNT, amount).apply()
+            prefs.edit().putInt(DolbyConstants.PREF_DIALOGUE_AMOUNT, amount).apply()
         } catch (e: Exception) {
             DolbyConstants.dlog(TAG, "Error setting dialogue enhancer amount: ${e.message}")
         }
@@ -859,6 +867,7 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
         try {
             val prefs = getProfilePrefs(profile)
             val previousLevel = prefs.getInt(DolbyConstants.PREF_MID_LEVEL, 0)
+            if (level == previousLevel) return
 
             prefs.edit().putInt(DolbyConstants.PREF_MID_LEVEL, level).apply()
             setMidEnhancerEnabled(profile, level > 0)

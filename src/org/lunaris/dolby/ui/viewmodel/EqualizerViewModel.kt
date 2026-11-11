@@ -37,6 +37,10 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     private var profileChangeJob: Job? = null
     @Volatile private var isCleared = false
 
+    private val bandGainWrites = kotlinx.coroutines.channels.Channel<List<BandGain>>(
+        kotlinx.coroutines.channels.Channel.CONFLATED
+    )
+
     private lateinit var autoEqRepository: AutoEqRepository
 
     private val _searchQuery = MutableStateFlow("")
@@ -71,6 +75,16 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
         DolbyConstants.dlog(TAG, "ViewModel initialized")
         loadEqualizer()
         observeProfileChanges()
+        viewModelScope.launch(Dispatchers.IO) {
+            for (gains in bandGainWrites) {
+                try {
+                    repository.setEqualizerGains(currentProfile, gains, currentBandMode)
+                } catch (e: Exception) {
+                    DolbyConstants.dlog(TAG, "Error setting band gain: ${e.message}")
+                }
+                kotlinx.coroutines.delay(BAND_GAIN_WRITE_INTERVAL_MS)
+            }
+        }
     }
     
     private fun observeProfileChanges() {
@@ -388,28 +402,37 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setBandGain(index: Int, gain: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val state = _uiState.value
-                if (state is EqualizerUiState.Success) {
-                    val isFlatPreset = state.currentPreset.name == context.getString(R.string.dolby_preset_default)
-                    if (!isFlatPreset && state.currentPreset.bandMode != currentBandMode) {
-                        ToastHelper.showToast(
-                            context,
-                            "Cannot edit ${state.currentPreset.bandMode.displayName} preset in ${currentBandMode.displayName} mode. " +
-                            "Switch to ${state.currentPreset.bandMode.displayName} or select a different preset."
-                        )
-                        return@launch
-                    }
-                    val newBandGains = state.bandGains.toMutableList()
-                    newBandGains[index] = newBandGains[index].copy(gain = gain)
-                    repository.setEqualizerGains(currentProfile, newBandGains, currentBandMode)
-                    loadEqualizer()
-                }
-            } catch (e: Exception) {
-                DolbyConstants.dlog(TAG, "Error setting band gain: ${e.message}")
-            }
+        val state = _uiState.value
+        if (state !is EqualizerUiState.Success) return
+
+        val isFlatPreset = state.currentPreset.name == context.getString(R.string.dolby_preset_default)
+        if (!isFlatPreset && state.currentPreset.bandMode != currentBandMode) {
+            ToastHelper.showToast(
+                context,
+                "Cannot edit ${state.currentPreset.bandMode.displayName} preset in ${currentBandMode.displayName} mode. " +
+                "Switch to ${state.currentPreset.bandMode.displayName} or select a different preset."
+            )
+            return
         }
+        if (index !in state.bandGains.indices) return
+
+        val newBandGains = state.bandGains.toMutableList()
+        newBandGains[index] = newBandGains[index].copy(gain = gain)
+
+        // Move the curve immediately, then coalesce the HAL writes. Dragging the curve emits an
+        // event per frame, and writing plus reloading the whole equalizer for each one flooded
+        // the Dolby HAL.
+        _uiState.value = state.copy(
+            bandGains = newBandGains,
+            currentPreset = state.currentPreset.copy(bandGains = newBandGains)
+        )
+        scheduleBandGainWrite(newBandGains)
+    }
+
+    private fun scheduleBandGainWrite(gains: List<BandGain>) {
+        // CONFLATED keeps only the newest curve while a write is in flight, so dragging never
+        // queues a backlog of HAL commands.
+        bandGainWrites.trySend(gains.toList())
     }
 
     fun savePreset(name: String): String? {
@@ -491,6 +514,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
 
     override fun onCleared() {
         isCleared = true
+        bandGainWrites.close()
         viewModelScope.coroutineContext.cancelChildren()
         profileChangeJob?.cancel()
         profileChangeJob = null
@@ -500,5 +524,6 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
     
     companion object {
         private const val TAG = "EqualizerViewModel"
+        private const val BAND_GAIN_WRITE_INTERVAL_MS = 64L
     }
 }
