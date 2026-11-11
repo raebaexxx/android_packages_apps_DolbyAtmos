@@ -121,11 +121,20 @@ class DolbyRepository(private val context: Context) : AutoCloseable {
     }
 
     fun applySavedState() {
-    checkEffect()
-        val enabled = defaultPrefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
-        dolbyEffect.dsOn = enabled
-        if (enabled) {
-            restoreSavedProfileIfNeeded()
+        if (isReleased) return
+
+        // Right after boot the DAP effect can reject parameters (INVALID_OPERATION) before the
+        // audio HAL has set it up. The service calls this again on playback start and output
+        // device changes, so a failed attempt is only logged.
+        try {
+            checkEffect()
+            val enabled = defaultPrefs.getBoolean(DolbyConstants.PREF_ENABLE, false)
+            dolbyEffect.dsOn = enabled
+            if (enabled) {
+                restoreSavedProfileIfNeeded()
+            }
+        } catch (e: Exception) {
+            DolbyConstants.dlog(TAG, "Failed to apply saved state: ${e.message}")
         }
     }
 
